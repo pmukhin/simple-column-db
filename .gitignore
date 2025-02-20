@@ -1,0 +1,4 @@
+/target
+/e2e/*
+!/e2e/main.py
+.idea/
