@@ -2,7 +2,8 @@ use crate::data::{Data, Schema};
 use sqlparser::dialect::GenericDialect;
 use sqlparser::parser::Parser;
 use sqlparser::parser::ParserError;
-use sqlparser::ast::Statement;
+use sqlparser::ast::{Expr, SetExpr, Statement};
+use sqlparser::ast::Value::{Number, SingleQuotedString};
 
 #[derive(Debug)]
 pub enum Command {
@@ -56,108 +57,34 @@ impl Command {
             Statement::Insert(q) => {
                 let table_name = q.table.to_string();
                 let columns = q.columns.iter().map(|i| i.to_string()).collect();
+                let as_sources =
+                    q.source.as_deref().ok_or(Error::Unsupported("query isn't a Source".to_string()))?;
 
-                Ok(Command::Insert { name: table_name, columns, values: vec![] })
+                match *as_sources.body {
+                    SetExpr::Values(ref val) => {
+                        let values_or_errors =
+                            val.rows[0].iter()
+                                .map(|v| {
+                                    match v {
+                                        Expr::Value(SingleQuotedString(v)) => {
+                                            Ok(Data::String(v.to_string()))
+                                        }
+                                        Expr::Value(Number(v, _)) => {
+                                            Ok(Data::Integer(v.parse::<i64>().unwrap()))
+                                        }
+                                        _ => Err(Error::Unsupported("only strings and numbers are supported".to_string())),
+                                    }
+                                })
+                                .collect::<Result<Vec<_>, _>>();
+                        let values: Vec<Data> = values_or_errors?;
+                        Ok(Command::Insert { name: table_name, columns, values })
+                    }
+                    _ => Err(Error::Unsupported("only VALUES are supported".to_string()))
+                }
             }
             Statement::Update { .. } => {
                 Ok(Command::Update { name: "".to_string(), columns: vec![] })
             }
-            // Statement::Analyze { .. } => {}
-            // Statement::Truncate { .. } => {}
-            // Statement::Msck { .. } => {}
-            // Statement::Install { .. } => {}
-            // Statement::Load { .. } => {}
-            // Statement::Directory { .. } => {}
-            // Statement::Call(_) => {}
-            // Statement::Copy { .. } => {}
-            // Statement::CopyIntoSnowflake { .. } => {}
-            // Statement::Close { .. } => {}
-            // Statement::Delete(_) => {}
-            // Statement::CreateView { .. } => {}
-            // Statement::CreateVirtualTable { .. } => {}
-            // Statement::CreateIndex(_) => {}
-            // Statement::CreateRole { .. } => {}
-            // Statement::CreateSecret { .. } => {}
-            // Statement::CreatePolicy { .. } => {}
-            // Statement::AlterTable { .. } => {}
-            // Statement::AlterIndex { .. } => {}
-            // Statement::AlterView { .. } => {}
-            // Statement::AlterRole { .. } => {}
-            // Statement::AlterPolicy { .. } => {}
-            // Statement::AttachDatabase { .. } => {}
-            // Statement::AttachDuckDBDatabase { .. } => {}
-            // Statement::DetachDuckDBDatabase { .. } => {}
-            // Statement::Drop { .. } => {}
-            // Statement::DropFunction { .. } => {}
-            // Statement::DropProcedure { .. } => {}
-            // Statement::DropSecret { .. } => {}
-            // Statement::DropPolicy { .. } => {}
-            // Statement::Declare { .. } => {}
-            // Statement::CreateExtension { .. } => {}
-            // Statement::DropExtension { .. } => {}
-            // Statement::Fetch { .. } => {}
-            // Statement::Flush { .. } => {}
-            // Statement::Discard { .. } => {}
-            // Statement::SetRole { .. } => {}
-            // Statement::SetVariable { .. } => {}
-            // Statement::SetTimeZone { .. } => {}
-            // Statement::SetNames { .. } => {}
-            // Statement::SetNamesDefault { .. } => {}
-            // Statement::ShowFunctions { .. } => {}
-            // Statement::ShowVariable { .. } => {}
-            // Statement::ShowStatus { .. } => {}
-            // Statement::ShowVariables { .. } => {}
-            // Statement::ShowCreate { .. } => {}
-            // Statement::ShowColumns { .. } => {}
-            // Statement::ShowDatabases { .. } => {}
-            // Statement::ShowSchemas { .. } => {}
-            // Statement::ShowTables { .. } => {}
-            // Statement::ShowViews { .. } => {}
-            // Statement::ShowCollation { .. } => {}
-            // Statement::Use(_) => {}
-            // Statement::StartTransaction { .. } => {}
-            // Statement::SetTransaction { .. } => {}
-            // Statement::Comment { .. } => {}
-            // Statement::Commit { .. } => {}
-            // Statement::Rollback { .. } => {}
-            // Statement::CreateSchema { .. } => {}
-            // Statement::CreateDatabase { .. } => {}
-            // Statement::CreateFunction(_) => {}
-            // Statement::CreateTrigger { .. } => {}
-            // Statement::DropTrigger { .. } => {}
-            // Statement::CreateProcedure { .. } => {}
-            // Statement::CreateMacro { .. } => {}
-            // Statement::CreateStage { .. } => {}
-            // Statement::Assert { .. } => {}
-            // Statement::Grant { .. } => {}
-            // Statement::Revoke { .. } => {}
-            // Statement::Deallocate { .. } => {}
-            // Statement::Execute { .. } => {}
-            // Statement::Prepare { .. } => {}
-            // Statement::Kill { .. } => {}
-            // Statement::ExplainTable { .. } => {}
-            // Statement::Explain { .. } => {}
-            // Statement::Savepoint { .. } => {}
-            // Statement::ReleaseSavepoint { .. } => {}
-            // Statement::Merge { .. } => {}
-            // Statement::Cache { .. } => {}
-            // Statement::UNCache { .. } => {}
-            // Statement::CreateSequence { .. } => {}
-            // Statement::CreateType { .. } => {}
-            // Statement::Pragma { .. } => {}
-            // Statement::LockTables { .. } => {}
-            // Statement::UnlockTables => {}
-            // Statement::Unload { .. } => {}
-            // Statement::OptimizeTable { .. } => {}
-            // Statement::LISTEN { .. } => {}
-            // Statement::UNLISTEN { .. } => {}
-            // Statement::NOTIFY { .. } => {}
-            // Statement::LoadData { .. } => {}
-            // Statement::RenameTable(_) => {}
-            // Statement::List(_) => {}
-            // Statement::Remove(_) => {}
-            // Statement::SetSessionParam(_) => {}
-            // Statement::RaisError { .. } => {}
             _ => Err(Error::Unsupported("unsupported query".to_string())),
         }
     }

@@ -4,7 +4,7 @@ mod table;
 mod cmd;
 mod server;
 use crate::cmd::Command;
-use crate::data::Schema;
+use crate::data::{Data, Schema};
 use crate::table::Table;
 use quinn::Connecting;
 use std::error::Error;
@@ -41,11 +41,9 @@ async fn handle_connection(connecting: Connecting, rc: Arc<RwLock<Table>>) {
         Ok(connection) => {
             println!("✅ New connection: {:?}", connection.remote_address());
 
-            let mut errors = 0;
             loop {
                 match connection.accept_bi().await {
                     Ok(stream) => {
-                        errors = 0;
                         tokio::spawn(handle_stream(stream, rc.clone()));
                     }
                     Err(e) => {
@@ -82,9 +80,23 @@ async fn handle_stream(
                 let q_message = format!("query: {:?}", q);
                 let _ = send.write_all(q_message.as_bytes()).await;
             }
-            Ok(q @ Command::Insert { .. }) => {
-                let q_message = format!("insert query: {:?}", q);
-                let _ = send.write_all(q_message.as_bytes()).await;
+            Ok(Command::Insert { name, columns, values }) => {
+                let mut g = rc.write().await;
+                match &values[0] {
+                    Data::String(k) => {
+                        let result = g.insert(k.clone(), &values[..]);
+                        match result {
+                            Ok(_) => {
+                                let _ = send.write_all("insert query: OK".as_bytes()).await;
+                            }
+                            Err(e) => {
+                                let q_message = format!("insert query: {:?}", &e);
+                                let _ = send.write_all(q_message.as_bytes()).await;
+                            }
+                        }
+                    }
+                    _ => panic!("not implemented"),
+                }
             }
             Ok(q @ Command::CreateTable { .. }) => {
                 let q_message = format!("query: {:?}", q);

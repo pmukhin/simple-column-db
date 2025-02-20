@@ -12,7 +12,8 @@ pub struct Table {
 
 unsafe impl Send for Table {}
 
-enum Error {
+#[derive(Debug)]
+pub enum Error {
     IncompatibleSchema,
 }
 
